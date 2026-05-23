@@ -64,8 +64,8 @@ private:
     // Menu widgets
     sf::Font font_;
     sf::Text ipLabel_, portLabel_, statusText_, gameStatusText_;
-    sf::String ipInput_ = "127.0.0.1";
-    sf::String portInput_ = "5555";
+    sf::String ipInput_ = "";
+    sf::String portInput_ = "";
     sf::RectangleShape connectButton_, ipBox_, portBox_;
     sf::Text connectButtonText_, ipText_, portText_;
     bool ipFocused_ = false, portFocused_ = false;

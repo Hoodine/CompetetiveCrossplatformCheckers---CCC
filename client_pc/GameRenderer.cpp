@@ -1,6 +1,7 @@
 #include "GameRenderer.h"
 #include <iostream>
 #include <sstream>
+#include <SFML/Window/Clipboard.hpp>
 
 #ifdef _WIN32
     #include <Windows.h>
@@ -109,47 +110,79 @@ void GameRenderer::handleMenuEvent(const sf::Event& event) {
     if (event.type == sf::Event::MouseButtonPressed) {
         sf::Vector2f mouse = window_.mapPixelToCoords(sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
 
-        // Focus IP field
         if (ipBox_.getGlobalBounds().contains(mouse)) {
             ipFocused_ = true;
             portFocused_ = false;
             return;
         }
-        // Focus Port field
         if (portBox_.getGlobalBounds().contains(mouse)) {
             portFocused_ = true;
             ipFocused_ = false;
             return;
         }
-        // Connect button
         if (connectButton_.getGlobalBounds().contains(mouse)) {
             connectToServer();
             return;
         }
-        // Click outside removes focus
         ipFocused_ = false;
         portFocused_ = false;
     }
 
-    if (event.type == sf::Event::TextEntered && event.text.unicode < 128) {
-        char c = static_cast<char>(event.text.unicode);
+    // ќбработка Ctrl+V (вставка)
+    if (event.type == sf::Event::KeyPressed && event.key.control && event.key.code == sf::Keyboard::V) {
+        sf::String clipboard = sf::Clipboard::getString();
         if (ipFocused_) {
-            if (c == '\b') { // backspace
-                if (!ipInput_.isEmpty()) ipInput_.erase(ipInput_.getSize() - 1);
-            }
-            else if (c >= 32 && c != 127) {
-                ipInput_ += c;
-            }
+            ipInput_ = clipboard;
             ipText_.setString(ipInput_);
         }
         else if (portFocused_) {
-            if (c == '\b') {
-                if (!portInput_.isEmpty()) portInput_.erase(portInput_.getSize() - 1);
+            // »з вставленного текста оставл€ем только цифры
+            sf::String filtered;
+            for (size_t i = 0; i < clipboard.getSize(); ++i) {
+                wchar_t c = clipboard[i];
+                if (c >= L'0' && c <= L'9') {
+                    filtered += c;
+                }
             }
-            else if (c >= '0' && c <= '9') {
-                portInput_ += c;
+            if (!filtered.isEmpty()) {
+                portInput_ = filtered;
+                portText_.setString(portInput_);
             }
-            portText_.setString(portInput_);
+        }
+        return;
+    }
+
+    // ќбработка Backspace и обычного ввода текста
+    if (event.type == sf::Event::TextEntered) {
+        uint32_t unicode = event.text.unicode;
+
+        // Backspace
+        if (unicode == 8) {
+            if (ipFocused_ && !ipInput_.isEmpty()) {
+                ipInput_.erase(ipInput_.getSize() - 1);
+                ipText_.setString(ipInput_);
+            }
+            else if (portFocused_ && !portInput_.isEmpty()) {
+                portInput_.erase(portInput_.getSize() - 1);
+                portText_.setString(portInput_);
+            }
+            return;
+        }
+
+        // »гнорируем непечатные символы и Ctrl+*
+        if (unicode < 32 || unicode == 127) return;
+
+        // ќбычный ввод
+        if (ipFocused_) {
+            ipInput_ += static_cast<char>(unicode);
+            ipText_.setString(ipInput_);
+        }
+        else if (portFocused_) {
+            // ƒл€ порта Ч только цифры
+            if (unicode >= L'0' && unicode <= L'9') {
+                portInput_ += static_cast<char>(unicode);
+                portText_.setString(portInput_);
+            }
         }
     }
 }
