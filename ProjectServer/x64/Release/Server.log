@@ -1,1 +1,10 @@
-﻿  Server.vcxproj -> C:\Users\Burcevi\Desktop\Курсач\CompetetiveCrossplatformCheckers---CCC\x64\Release\Server.exe
+﻿  CheckersBoard.cpp
+  GameRoom.cpp
+C:\Users\Burcevi\Desktop\Курсач\Git\CompetetiveCrossplatformCheckers---CCC\server\GameRoom.cpp(203,25): warning C4244: инициализация: преобразование "SocketType" в "int", возможна потеря данных
+  main.cpp
+  server.cpp
+  Создание кода
+  Previous IPDB and IOBJ mismatch, fall back to full compilation.
+  All 2138 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Создание кода завершено
+  Server.vcxproj -> C:\Users\Burcevi\Desktop\Курсач\Git\CompetetiveCrossplatformCheckers---CCC\x64\Release\Server.exe
