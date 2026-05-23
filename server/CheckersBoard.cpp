@@ -106,21 +106,19 @@ bool CheckersBoard::isValidManCapture(int fromRow, int fromCol, int toRow, int t
     int rowDiff = toRow - fromRow;
     int colDiff = toCol - fromCol;
 
-    // Взятие: прыжок на 2 клетки по диагонали
     if (std::abs(rowDiff) != 2 || std::abs(colDiff) != 2)
         return false;
 
-    // Направление: белые бьют вверх, чёрные — вниз
+    // Белые — только вверх (rowDiff = -2)
     if (playerColor == WHITE_MAN && rowDiff != -2)
         return false;
+    // Чёрные — только вниз (rowDiff = +2)
     if (playerColor == BLACK_MAN && rowDiff != 2)
         return false;
 
-    // Конечная клетка должна быть пустой
     if (board[toRow][toCol] != EMPTY)
         return false;
 
-    // Средняя клетка должна быть вражеской фигурой
     int midRow = fromRow + rowDiff / 2;
     int midCol = fromCol + colDiff / 2;
     return isEnemyPiece(midRow, midCol, playerColor);
@@ -222,26 +220,37 @@ bool CheckersBoard::hasMandatoryCapture(Cell playerColor) const {
             Cell piece = board[r][c];
             bool isKing = (piece == WHITE_KING || piece == BLACK_KING);
 
-            // Проверяем все возможные взятия
-            for (int dr = -2; dr <= 2; dr += 4) {
-                for (int dc = -2; dc <= 2; dc += 4) {
-                    int tr = r + dr;
-                    int tc = c + dc;
-                    if (!isValidCoord(tr, tc)) continue;
-
-                    if (isKing) {
-                        // Для дамки проверяем все диагонали дальше 2 клеток
-                        for (int dist = 2; dist < SIZE; ++dist) {
-                            int kr = r + (dr / 2) * dist;
-                            int kc = c + (dc / 2) * dist;
-                            if (!isValidCoord(kr, kc)) break;
-                            if (isValidKingCapture(r, c, kr, kc, playerColor))
-                                return true;
-                        }
-                    }
-                    else {
-                        if (isValidManCapture(r, c, tr, tc, playerColor))
+            if (isKing) {
+                const int dirs[4][2] = { {-1,-1}, {-1,1}, {1,-1}, {1,1} };
+                for (int d = 0; d < 4; ++d) {
+                    int dr = dirs[d][0], dc = dirs[d][1];
+                    for (int i = 1; i < SIZE; ++i) {
+                        int tr = r + dr * i;
+                        int tc = c + dc * i;
+                        if (!isValidCoord(tr, tc)) break;
+                        if (board[tr][tc] == EMPTY) continue;
+                        if (isOwnPiece(tr, tc, playerColor)) break;
+                        // Враг — проверяем клетку за ним
+                        int jr = tr + dr;
+                        int jc = tc + dc;
+                        if (isValidCoord(jr, jc) && board[jr][jc] == EMPTY)
                             return true;
+                        break;
+                    }
+                }
+            }
+            else {
+                // ПРОСТАЯ ШАШКА — только вперёд
+                int forward = (playerColor == WHITE_MAN) ? -1 : 1;
+                for (int dc : {-1, 1}) {
+                    int midR = r + forward;
+                    int midC = c + dc;
+                    int toR = r + 2 * forward;
+                    int toC = c + 2 * dc;
+                    if (isValidCoord(toR, toC) &&
+                        isEnemyPiece(midR, midC, playerColor) &&
+                        board[toR][toC] == EMPTY) {
+                        return true;
                     }
                 }
             }
@@ -305,38 +314,46 @@ bool CheckersBoard::makeMove(const std::string& from, const std::string& to, Cel
     if (!isValidCoord(fromRow, fromCol) || !isValidCoord(toRow, toCol))
         return false;
 
-    // Проверяем, что на начальной клетке стоит фигура нужного цвета
     if (!isOwnPiece(fromRow, fromCol, playerColor))
         return false;
 
     Cell piece = board[fromRow][fromCol];
     bool isKing = (piece == WHITE_KING || piece == BLACK_KING);
 
-    // Проверяем обязательное взятие
+    // Проверяем, есть ли обязательное взятие на доске
     bool mandatory = hasMandatoryCapture(playerColor);
+    bool thisPieceCanCapture = canCaptureFrom(from, playerColor);
 
+    bool isCapture = false;
     bool isValid = false;
+
     if (isKing) {
-        if (mandatory) {
+        isValid = isValidKingMove(fromRow, fromCol, toRow, toCol, playerColor);
+        if (!isValid) {
             isValid = isValidKingCapture(fromRow, fromCol, toRow, toCol, playerColor);
-        }
-        else {
-            isValid = isValidKingMove(fromRow, fromCol, toRow, toCol, playerColor) ||
-                isValidKingCapture(fromRow, fromCol, toRow, toCol, playerColor);
+            isCapture = isValid;
         }
     }
     else {
-        if (mandatory) {
+        isValid = isValidManMove(fromRow, fromCol, toRow, toCol, playerColor);
+        if (!isValid) {
             isValid = isValidManCapture(fromRow, fromCol, toRow, toCol, playerColor);
-        }
-        else {
-            isValid = isValidManMove(fromRow, fromCol, toRow, toCol, playerColor) ||
-                isValidManCapture(fromRow, fromCol, toRow, toCol, playerColor);
+            isCapture = isValid;
         }
     }
 
     if (!isValid)
         return false;
+
+    // Если есть обязательное взятие, то ход ДОЛЖЕН быть взятием
+    if (mandatory && !isCapture) {
+        return false; // Нельзя ходить тихо, когда есть взятие
+    }
+
+    // Если есть обязательное взятие, но эта фигура не может бить — нельзя ходить
+    if (mandatory && !thisPieceCanCapture) {
+        return false; // Другая фигура должна бить
+    }
 
     // Выполняем ход
     executeMove(fromRow, fromCol, toRow, toCol);
@@ -402,4 +419,188 @@ std::string CheckersBoard::toString() const {
     }
     oss << "  a b c d e f g h\n";
     return oss.str();
+}
+
+std::vector<std::string> CheckersBoard::getPossibleMoves(const std::string& from, Cell playerColor) const {
+    std::vector<std::string> moves;
+    std::vector<std::string> captures;
+
+    int fromRow = rowFromChar(from[1]);
+    int fromCol = colFromChar(from[0]);
+
+    if (!isValidCoord(fromRow, fromCol)) return moves;
+    if (!isOwnPiece(fromRow, fromCol, playerColor)) return moves;
+
+    Cell piece = board[fromRow][fromCol];
+    bool isKing = (piece == WHITE_KING || piece == BLACK_KING);
+
+    // Проверяем, есть ли у ВСЕГО игрока обязательные взятия
+    bool mandatory = hasMandatoryCapture(playerColor);
+    // Проверяем, может ли ИМЕННО ЭТА фигура бить
+    bool thisPieceCanCapture = canCaptureFrom(from, playerColor);
+
+    if (isKing) {
+        const int dirs[4][2] = { {-1,-1}, {-1,1}, {1,-1}, {1,1} };
+
+        // Собираем взятия дамкой
+        for (int d = 0; d < 4; ++d) {
+            int dr = dirs[d][0], dc = dirs[d][1];
+            for (int i = 1; i < SIZE; ++i) {
+                int r = fromRow + dr * i;
+                int c = fromCol + dc * i;
+                if (!isValidCoord(r, c)) break;
+
+                Cell target = board[r][c];
+                if (target == EMPTY) continue;
+                if (isOwnPiece(r, c, playerColor)) break;
+
+                // Вражеская фигура — проверяем пустые клетки за ней
+                for (int j = 1; j < SIZE; ++j) {
+                    int jumpR = r + dr * j;
+                    int jumpC = c + dc * j;
+                    if (!isValidCoord(jumpR, jumpC)) break;
+                    if (board[jumpR][jumpC] != EMPTY) break;
+
+                    std::string to;
+                    to += colToChar(jumpC);
+                    to += rowToChar(jumpR);
+                    captures.push_back(to);
+                }
+                break;
+            }
+        }
+
+        // Тихие ходы дамкой
+        for (int d = 0; d < 4; ++d) {
+            int dr = dirs[d][0], dc = dirs[d][1];
+            for (int i = 1; i < SIZE; ++i) {
+                int r = fromRow + dr * i;
+                int c = fromCol + dc * i;
+                if (!isValidCoord(r, c) || board[r][c] != EMPTY) break;
+
+                std::string to;
+                to += colToChar(c);
+                to += rowToChar(r);
+                moves.push_back(to);
+            }
+        }
+    }
+    else {
+        // Простая шашка: только вперёд
+        int forward = (playerColor == WHITE_MAN) ? -1 : 1;
+
+        // Взятия простой шашкой
+        for (int dc : {-1, 1}) {
+            int midR = fromRow + forward;
+            int midC = fromCol + dc;
+            int toR = fromRow + 2 * forward;
+            int toC = fromCol + 2 * dc;
+
+            if (isValidCoord(toR, toC) &&
+                isEnemyPiece(midR, midC, playerColor) &&
+                board[toR][toC] == EMPTY) {
+                std::string to;
+                to += colToChar(toC);
+                to += rowToChar(toR);
+                captures.push_back(to);
+            }
+        }
+
+        // Тихие ходы простой шашкой
+        for (int dc : {-1, 1}) {
+            int r = fromRow + forward;
+            int c = fromCol + dc;
+            if (isValidCoord(r, c) && board[r][c] == EMPTY) {
+                std::string to;
+                to += colToChar(c);
+                to += rowToChar(r);
+                moves.push_back(to);
+            }
+        }
+    }
+
+    if (mandatory) {
+        if (thisPieceCanCapture) {
+            return captures; // Только взятия этой фигурой
+        }
+        else {
+            return std::vector<std::string>(); // Пусто — этой фигурой нельзя ходить
+        }
+    }
+
+    // Нет обязательных взятий — возвращаем всё
+    captures.insert(captures.end(), moves.begin(), moves.end());
+    return captures;
+}
+
+bool CheckersBoard::canCaptureFrom(const std::string& from, Cell playerColor) const {
+    int row = rowFromChar(from[1]);
+    int col = colFromChar(from[0]);
+
+    if (!isValidCoord(row, col)) return false;
+    if (!isOwnPiece(row, col, playerColor)) return false;
+
+    Cell piece = board[row][col];
+    bool isKing = (piece == WHITE_KING || piece == BLACK_KING);
+
+    if (isKing) {
+        // Дамка: все 4 направления
+        const int dirs[4][2] = { {-1,-1}, {-1,1}, {1,-1}, {1,1} };
+        for (int d = 0; d < 4; ++d) {
+            int dr = dirs[d][0], dc = dirs[d][1];
+            for (int i = 1; i < SIZE; ++i) {
+                int r = row + dr * i;
+                int c = col + dc * i;
+                if (!isValidCoord(r, c)) break;
+
+                Cell target = board[r][c];
+                if (target == EMPTY) continue;
+                if (isOwnPiece(r, c, playerColor)) break;
+
+                // Вражеская фигура — проверяем пустую клетку за ней
+                int jumpR = r + dr;
+                int jumpC = c + dc;
+                if (isValidCoord(jumpR, jumpC) && board[jumpR][jumpC] == EMPTY) {
+                    return true;
+                }
+                break;
+            }
+        }
+    }
+    else {
+        // ПРОСТАЯ ШАШКА: ТОЛЬКО ВПЕРЁД!
+        // Белые ходят вверх (row уменьшается), чёрные — вниз (row увеличивается)
+        int forward = (playerColor == WHITE_MAN) ? -1 : 1;
+
+        // Проверяем только два диагональных взятия ВПЕРЁД
+        for (int dc : {-1, 1}) {
+            int midR = row + forward;      // клетка с врагом (на 1 вперёд)
+            int midC = col + dc;
+            int toR = row + 2 * forward;   // клетка приземления (на 2 вперёд)
+            int toC = col + 2 * dc;
+
+            if (isValidCoord(toR, toC) &&
+                isEnemyPiece(midR, midC, playerColor) &&
+                board[toR][toC] == EMPTY) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool CheckersBoard::hasAnyMoves(Cell playerColor) const {
+    for (int r = 0; r < SIZE; ++r) {
+        for (int c = 0; c < SIZE; ++c) {
+            if (isOwnPiece(r, c, playerColor)) {
+                std::string from;
+                from += colToChar(c);
+                from += rowToChar(r);
+                if (!getPossibleMoves(from, playerColor).empty()) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }

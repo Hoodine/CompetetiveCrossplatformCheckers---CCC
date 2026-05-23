@@ -145,6 +145,11 @@ void GameRoom::broadcastBoardState(int currentPlayerIndex) {
             {"turn", (currentPlayerIndex == 0 ? "white" : "black")},
             {"board_string", board_.toString()}
         };
+
+        // Если идёт серия взятий, добавляем обязательную фигуру
+        if (mustCaptureAgain_) {
+            boardMsg["must_capture_from"] = capturePiecePos_;
+        }
     }
     catch (const std::exception& e) {
         std::cerr << "[Room " << roomId_ << "] ERROR creating board message: " << e.what() << "\n";
@@ -172,31 +177,28 @@ void GameRoom::run() {
         std::cout << "[Room " << roomId_ << "] Sending game_start to players...\n";
         sendToPlayer(0, startMsg0);
         sendToPlayer(1, startMsg1);
-        std::cout << "[Room " << roomId_ << "] game_start messages sent successfully.\n";
 
-        int currentPlayer = 0; // 0 = белые (ходят первыми)
+        int currentPlayer = 0; // 0 = белые
+        mustCaptureAgain_ = false;
+
+        // Отправляем ПЕРВОЕ состояние доски
+        broadcastBoardState(currentPlayer);
 
         while (!finished_) {
-            // Отправляем состояние доски
-            broadcastBoardState(currentPlayer);
-
-            // Ждём сообщение от ЛЮБОГО игрока (не только currentPlayer)
+            // Ждём сообщение от ЛЮБОГО игрока
             nlohmann::json moveMsg;
             int fromPlayer = -1;
             bool gotMessage = false;
 
-            // Пытаемся получить сообщение от обоих (можно через poll или select)
-            // Самый простой способ: проверить оба сокета по очереди с таймаутом
             fd_set readSet;
             FD_ZERO(&readSet);
             FD_SET(players_[0], &readSet);
             FD_SET(players_[1], &readSet);
 
             timeval timeout;
-            timeout.tv_sec = 1;   // 1 секунда
+            timeout.tv_sec = 1;
             timeout.tv_usec = 0;
 
-            // Копируем сокеты, т.к. select может их модифицировать
             fd_set tmpSet = readSet;
             int maxSock = (players_[0] > players_[1] ? players_[0] : players_[1]) + 1;
 
@@ -210,7 +212,6 @@ void GameRoom::run() {
                             break;
                         }
                         else {
-                            // Ошибка или отключение
                             handleDisconnect(i);
                             finished_ = true;
                             break;
@@ -219,7 +220,6 @@ void GameRoom::run() {
                 }
             }
             else if (selRet == 0) {
-                // Таймаут – продолжаем цикл (можно отправить пинг или просто повторить)
                 continue;
             }
             else {
@@ -239,11 +239,36 @@ void GameRoom::run() {
             std::cout << "[Room " << roomId_ << "] Message from player " << fromPlayer
                 << " type: " << msgType << "\n";
 
-            // ----- Обработка общих сообщений (не зависят от очереди) -----
+            // ----- ОБЩИЕ сообщения (не зависят от очереди) -----
             if (msgType == "ping") {
                 nlohmann::json pongMsg = { {"type", "pong"} };
                 sendToPlayer(fromPlayer, pongMsg);
-                continue;  // не переключаем ход
+                continue;
+            }
+
+            if (msgType == "get_moves") {
+                if (!moveMsg.contains("from")) {
+                    sendError(fromPlayer, "Missing 'from' field");
+                    continue;
+                }
+                std::string from = moveMsg["from"];
+                CheckersBoard::Cell color = (fromPlayer == 0)
+                    ? CheckersBoard::WHITE_MAN
+                    : CheckersBoard::BLACK_MAN;
+
+                std::vector<std::string> moves = board_.getPossibleMoves(from, color);
+
+                if (mustCaptureAgain_ && from != capturePiecePos_) {
+                    moves.clear();
+                }
+
+                nlohmann::json resp = {
+                    {"type", "possible_moves"},
+                    {"from", from},
+                    {"moves", moves}
+                };
+                sendToPlayer(fromPlayer, resp);
+                continue;
             }
 
             if (msgType == "resign") {
@@ -258,7 +283,7 @@ void GameRoom::run() {
                 continue;
             }
 
-            // ----- Сообщения, допустимые только от текущего игрока -----
+            // ----- ХОДЫ: только от текущего игрока -----
             if (fromPlayer != currentPlayer) {
                 sendError(fromPlayer, "It's not your turn");
                 continue;
@@ -273,6 +298,11 @@ void GameRoom::run() {
                 std::string from = moveMsg["from"];
                 std::string to = moveMsg["to"];
 
+                if (mustCaptureAgain_ && from != capturePiecePos_) {
+                    sendError(fromPlayer, "You must continue capturing with the same piece");
+                    continue;
+                }
+
                 CheckersBoard::Cell playerColor = (currentPlayer == 0)
                     ? CheckersBoard::WHITE_MAN
                     : CheckersBoard::BLACK_MAN;
@@ -283,6 +313,7 @@ void GameRoom::run() {
                         << " moved: " << from << " -> " << to << "\n";
                     std::cout << board_.toString() << "\n";
 
+                    // Проверяем победу (все шашки съедены)
                     CheckersBoard::Cell winner;
                     if (board_.isGameOver(winner)) {
                         std::string winnerStr = (winner == CheckersBoard::WHITE_MAN) ? "white" : "black";
@@ -292,15 +323,53 @@ void GameRoom::run() {
                             {"winner", winnerStr}
                         };
                         sendToBoth(gameOverMsg);
+                        std::cout << "[Room " << roomId_ << "] Game over. Winner: " << winnerStr << "\n";
                         finished_ = true;
+                        continue;
+                    }
+
+                    // Проверяем серию взятий
+                    if (board_.canCaptureFrom(to, playerColor)) {
+                        mustCaptureAgain_ = true;
+                        capturePiecePos_ = to;
+                        std::cout << "[Room " << roomId_ << "] Capture series continues from " << to << "\n";
+                        // НЕ переключаем игрока, отправляем обновлённую доску
+                        broadcastBoardState(currentPlayer);
+                        continue;
                     }
                     else {
+                        mustCaptureAgain_ = false;
+                        // ПЕРЕКЛЮЧАЕМ игрока
                         currentPlayer = 1 - currentPlayer;
+
+                        // Проверяем, может ли новый игрок ходить
+                        CheckersBoard::Cell nextColor = (currentPlayer == 0)
+                            ? CheckersBoard::WHITE_MAN
+                            : CheckersBoard::BLACK_MAN;
+
+                        if (!board_.hasAnyMoves(nextColor)) {
+                            std::string winnerStr = (nextColor == CheckersBoard::WHITE_MAN) ? "black" : "white";
+                            nlohmann::json gameOverMsg = {
+                                {"type", "game_over"},
+                                {"reason", "no_moves"},
+                                {"winner", winnerStr}
+                            };
+                            sendToBoth(gameOverMsg);
+                            std::cout << "[Room " << roomId_ << "] Game over (no moves). Winner: " << winnerStr << "\n";
+                            finished_ = true;
+                        }
+                        else {
+                            // Отправляем обновлённую доску ОБОИМ игрокам
+                            broadcastBoardState(currentPlayer);
+                        }
                     }
                 }
                 else {
                     sendError(fromPlayer, "Invalid move");
+                    std::cout << "[Room " << roomId_ << "] Invalid move from player "
+                        << fromPlayer << ": " << from << " -> " << to << "\n";
                 }
+
             }
             else {
                 sendError(fromPlayer, "Unknown message type: " + msgType);

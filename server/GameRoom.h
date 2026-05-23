@@ -30,6 +30,8 @@ private:
     int roomId_;
     CheckersBoard board_;
     std::atomic<bool> finished_{ false };
+    bool mustCaptureAgain_ = false;
+    std::string capturePiecePos_;
 
     /**
      * @brief Отправка JSON-сообщения одному игроку.

@@ -46,6 +46,16 @@ public:
      */
     std::string toString() const;
 
+    // ¬озвращает список допустимых конечных клеток дл€ фигуры на 'from'
+    // с учЄтом об€зательности вз€ти€ и текущего цвета игрока
+    std::vector<std::string> getPossibleMoves(const std::string& from, Cell playerColor) const;
+
+    // ѕровер€ет, есть ли у игрока playerColor хоть один допустимый ход
+    bool hasAnyMoves(Cell playerColor) const;
+
+    // ѕровер€ет, может ли фигура на 'from' совершить вз€тие (дл€ определени€ серии)
+    bool canCaptureFrom(const std::string& from, Cell playerColor) const;
+
 private:
     Cell board[SIZE][SIZE];
 
