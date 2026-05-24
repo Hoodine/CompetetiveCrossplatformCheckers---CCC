@@ -14,7 +14,6 @@ GameRenderer::GameRenderer() {
 
     // Load font
     if (!font_.loadFromFile("arial.ttf")) {
-        // Try Windows system font
 #ifdef _WIN32
         if (!font_.loadFromFile("C:/Windows/Fonts/arial.ttf")) {
             std::cerr << "Failed to load arial.ttf\n";
@@ -22,7 +21,7 @@ GameRenderer::GameRenderer() {
 #endif
     }
 
-    // Initialize menu texts
+    // --- Меню (IP/Port/Connect) ---
     ipLabel_.setFont(font_);
     ipLabel_.setString("Server IP:");
     ipLabel_.setCharacterSize(24);
@@ -71,10 +70,45 @@ GameRenderer::GameRenderer() {
     statusText_.setFillColor(sf::Color::Yellow);
     statusText_.setPosition(50, 320);
 
+    // --- Статус игры (две строки) ---
     gameStatusText_.setFont(font_);
     gameStatusText_.setCharacterSize(24);
     gameStatusText_.setFillColor(sf::Color::White);
-    gameStatusText_.setPosition(50, 20);
+    gameStatusText_.setPosition(50, 10);
+
+    turnText_.setFont(font_);
+    turnText_.setCharacterSize(24);
+    turnText_.setFillColor(sf::Color::White);
+    turnText_.setPosition(50, 40);
+
+    // --- Кнопка Disconnect (во время игры) ---
+    disconnectButton_.setSize(sf::Vector2f(140, 40));
+    disconnectButton_.setFillColor(sf::Color(150, 50, 50));
+    disconnectButton_.setPosition(740, 10);
+    disconnectButtonText_.setFont(font_);
+    disconnectButtonText_.setString("Disconnect");
+    disconnectButtonText_.setCharacterSize(20);
+    disconnectButtonText_.setFillColor(sf::Color::White);
+    disconnectButtonText_.setPosition(755, 15);
+
+    // --- Кнопка Back to Menu (конец игры) ---
+    backToMenuButton_.setSize(sf::Vector2f(200, 50));
+    backToMenuButton_.setFillColor(sf::Color(50, 150, 50));
+    backToMenuButton_.setPosition(350, 400);
+    backToMenuButtonText_.setFont(font_);
+    backToMenuButtonText_.setString("Back to Menu");
+    backToMenuButtonText_.setCharacterSize(24);
+    backToMenuButtonText_.setFillColor(sf::Color::White);
+    backToMenuButtonText_.setPosition(380, 410);
+
+    // --- Курсоры ввода ---
+    ipCursor_.setSize(sf::Vector2f(2, 30));
+    ipCursor_.setFillColor(sf::Color::White);
+    ipCursor_.setPosition(0, 0); // будет динамически позиционироваться
+
+    portCursor_.setSize(sf::Vector2f(2, 30));
+    portCursor_.setFillColor(sf::Color::White);
+    portCursor_.setPosition(0, 0);
 }
 
 void GameRenderer::run() {
@@ -98,7 +132,23 @@ void GameRenderer::processEvents() {
             handleMenuEvent(event);
             break;
         case State::PLAYING:
-            handlePlayingEvent(event);
+        case State::GAME_OVER: // клики в игре (в том числе по кнопкам)
+            if (event.type == sf::Event::MouseButtonPressed) {
+                sf::Vector2f mouse = window_.mapPixelToCoords(
+                    sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+                if (state_ == State::GAME_OVER) {
+                    handleGameOverClick(mouse);
+                }
+                else {
+                    // Disconnect button?
+                    if (disconnectButton_.getGlobalBounds().contains(mouse)) {
+                        resetToMenu();
+                        return;
+                    }
+                    // Игровое поле (ход)
+                    handlePlayingEvent(event);
+                }
+            }
             break;
         default:
             break;
@@ -128,36 +178,33 @@ void GameRenderer::handleMenuEvent(const sf::Event& event) {
         portFocused_ = false;
     }
 
-    // Обработка Ctrl+V (вставка)
+    // Ctrl+V
     if (event.type == sf::Event::KeyPressed && event.key.control && event.key.code == sf::Keyboard::V) {
         sf::String clipboard = sf::Clipboard::getString();
         if (ipFocused_) {
+            // Ограничиваем длину IP
+            if (clipboard.getSize() > MAX_IP_LENGTH)
+                clipboard = clipboard.substring(0, MAX_IP_LENGTH);
             ipInput_ = clipboard;
             ipText_.setString(ipInput_);
         }
         else if (portFocused_) {
-            // Из вставленного текста оставляем только цифры
             sf::String filtered;
-            for (size_t i = 0; i < clipboard.getSize(); ++i) {
+            for (size_t i = 0; i < clipboard.getSize() && filtered.getSize() < MAX_PORT_LENGTH; ++i) {
                 wchar_t c = clipboard[i];
-                if (c >= L'0' && c <= L'9') {
+                if (c >= L'0' && c <= L'9')
                     filtered += c;
-                }
             }
-            if (!filtered.isEmpty()) {
-                portInput_ = filtered;
-                portText_.setString(portInput_);
-            }
+            portInput_ = filtered;
+            portText_.setString(portInput_);
         }
         return;
     }
 
-    // Обработка Backspace и обычного ввода текста
+    // Backspace и обычный ввод
     if (event.type == sf::Event::TextEntered) {
         uint32_t unicode = event.text.unicode;
-
-        // Backspace
-        if (unicode == 8) {
+        if (unicode == 8) { // Backspace
             if (ipFocused_ && !ipInput_.isEmpty()) {
                 ipInput_.erase(ipInput_.getSize() - 1);
                 ipText_.setString(ipInput_);
@@ -168,18 +215,16 @@ void GameRenderer::handleMenuEvent(const sf::Event& event) {
             }
             return;
         }
-
-        // Игнорируем непечатные символы и Ctrl+*
         if (unicode < 32 || unicode == 127) return;
 
-        // Обычный ввод
         if (ipFocused_) {
-            ipInput_ += static_cast<char>(unicode);
-            ipText_.setString(ipInput_);
+            if (ipInput_.getSize() < MAX_IP_LENGTH) {
+                ipInput_ += static_cast<char>(unicode);
+                ipText_.setString(ipInput_);
+            }
         }
         else if (portFocused_) {
-            // Для порта — только цифры
-            if (unicode >= L'0' && unicode <= L'9') {
+            if (unicode >= L'0' && unicode <= L'9' && portInput_.getSize() < MAX_PORT_LENGTH) {
                 portInput_ += static_cast<char>(unicode);
                 portText_.setString(portInput_);
             }
@@ -229,12 +274,11 @@ void GameRenderer::handlePlayingEvent(const sf::Event& event) {
             from += char('a' + selCol_);
             from += char('8' - selRow_);
 
-            nlohmann::json move = {
+            client_.sendMessage({
                 {"type", "move"},
                 {"from", from},
                 {"to", target}
-            };
-            client_.sendMessage(move);
+                });
             possibleMoves_.clear();
             hasSelection_ = false;
             statusText_.setString("");
@@ -242,16 +286,14 @@ void GameRenderer::handlePlayingEvent(const sf::Event& event) {
         }
     }
 
-    // Пробуем выделить свою шашку
+    // Выделение своей шашки
     int piece = board_[row][col];
 
-    // Если принудительное взятие — нельзя выбирать другие шашки
     if (!captureForcedFrom_.empty()) {
         std::string forcedPos = captureForcedFrom_;
         std::string clickedPos;
         clickedPos += char('a' + col);
         clickedPos += char('8' - row);
-
         if (forcedPos != clickedPos) {
             statusText_.setString("You must capture with the highlighted piece!");
             return;
@@ -284,6 +326,18 @@ void GameRenderer::update() {
     if (state_ == State::DISCONNECTED && !client_.isConnected()) {
         statusText_.setString("Disconnected from server.");
     }
+
+    // Мигание курсора каждые 0.5 секунды
+    if (cursorClock_.getElapsedTime().asSeconds() > 0.5f) {
+        showCursor_ = !showCursor_;
+        cursorClock_.restart();
+    }
+}
+
+void GameRenderer::handleGameOverClick(sf::Vector2f mouse) {
+    if (backToMenuButton_.getGlobalBounds().contains(mouse)) {
+        resetToMenu();
+    }
 }
 
 void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
@@ -293,14 +347,14 @@ void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
         myColor_ = msg["color"];
         state_ = State::PLAYING;
         gameStatusText_.setString("You are " + myColor_);
-        statusText_.setString("Waiting for board...");
+        turnText_.setString("");
+        statusText_.setString("");
         possibleMoves_.clear();
         captureForcedFrom_.clear();
         hasSelection_ = false;
         board_.clear();
     }
     else if (type == "board_state") {
-        // Обновляем доску
         board_.clear();
         for (const auto& row : msg["board"]) {
             std::vector<int> r;
@@ -309,17 +363,18 @@ void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
         }
         currentTurn_ = msg.value("turn", "");
 
-        std::string statusStr = "Turn: " + currentTurn_;
+        // Обновляем текст хода
+        std::string turnStr = "Turn: " + currentTurn_;
         if (myColor_ == currentTurn_) {
-            statusStr += " (your turn)";
+            turnStr += " (Your turn)";
         }
         else {
-            statusStr += " (waiting)";
+            turnStr += " (Opponent)";
         }
-        gameStatusText_.setString(statusStr);
+        turnText_.setString(turnStr);
         statusText_.setString("");
 
-        // Обработка принудительного взятия
+        // Принудительное взятие
         if (msg.contains("must_capture_from")) {
             captureForcedFrom_ = msg["must_capture_from"];
             std::string pos = captureForcedFrom_;
@@ -330,17 +385,12 @@ void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
             client_.sendMessage({ {"type", "get_moves"}, {"from", pos} });
         }
         else {
-            // НЕТ принудительного взятия
             captureForcedFrom_.clear();
-
             if (myColor_ != currentTurn_) {
-                // Не наш ход — снимаем ВСЁ
                 hasSelection_ = false;
                 possibleMoves_.clear();
             }
             else {
-                // Наш ход — разрешаем выбирать, но сбрасываем предыдущие подсказки
-                // (игрок должен заново кликнуть по фигуре)
                 hasSelection_ = false;
                 possibleMoves_.clear();
                 captureForcedFrom_.clear();
@@ -349,10 +399,6 @@ void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
     }
     else if (type == "possible_moves") {
         possibleMoves_ = msg.value("moves", std::vector<std::string>());
-        // Оставляем hasSelection_ = true, чтобы показать подсветку
-        std::cout << "Possible moves: ";
-        for (auto& m : possibleMoves_) std::cout << m << " ";
-        std::cout << "\n";
     }
     else if (type == "error") {
         statusText_.setString("Error: " + msg.value("message", ""));
@@ -364,9 +410,6 @@ void GameRenderer::handleServerMessage(const nlohmann::json& msg) {
         gameOver_ = true;
         state_ = State::GAME_OVER;
     }
-    else if (type == "pong") {
-        // ignore
-    }
 }
 
 void GameRenderer::render() {
@@ -377,7 +420,11 @@ void GameRenderer::render() {
     }
     else if (state_ == State::PLAYING || state_ == State::GAME_OVER) {
         drawGame();
-        if (state_ == State::GAME_OVER) drawGameOver();
+        drawDisconnectButton(); // доступна всегда в игре
+        if (state_ == State::GAME_OVER) {
+            drawGameOver();
+            drawBackToMenuButton();
+        }
     }
 
     window_.display();
@@ -393,17 +440,36 @@ void GameRenderer::drawMenu() {
     window_.draw(connectButton_);
     window_.draw(connectButtonText_);
     window_.draw(statusText_);
+
+    // Отрисовка курсоров в полях ввода
+    if (showCursor_) {
+        if (ipFocused_) {
+            // Позиция курсора после последнего символа
+            sf::FloatRect textBounds = ipText_.getGlobalBounds();
+            float cursorX = textBounds.left + textBounds.width + 2;
+            float cursorY = ipText_.getPosition().y + 2;
+            ipCursor_.setPosition(cursorX, cursorY);
+            window_.draw(ipCursor_);
+        }
+        else if (portFocused_) {
+            sf::FloatRect textBounds = portText_.getGlobalBounds();
+            float cursorX = textBounds.left + textBounds.width + 2;
+            float cursorY = portText_.getPosition().y + 2;
+            portCursor_.setPosition(cursorX, cursorY);
+            window_.draw(portCursor_);
+        }
+    }
 }
 
 void GameRenderer::drawGame() {
     drawBoard();
     drawPieces();
-    drawStatus(gameStatusText_.getString());
+    drawStatusTexts();
+
     // Подсветка возможных ходов
     if (hasSelection_ && !possibleMoves_.empty()) {
         sf::CircleShape hint(CELL_SIZE * 0.2f);
         hint.setFillColor(sf::Color(0, 255, 0, 150));
-
         for (const auto& to : possibleMoves_) {
             int col = to[0] - 'a';
             int row = '8' - to[1];
@@ -413,14 +479,13 @@ void GameRenderer::drawGame() {
         }
     }
 
-    // Подсветка выделенной фигуры
+    // Выделение
     if (hasSelection_) {
         sf::RectangleShape highlight(sf::Vector2f(CELL_SIZE, CELL_SIZE));
         highlight.setFillColor(sf::Color(255, 255, 0, 100));
         highlight.setPosition(boardToPixel(selRow_, selCol_));
         window_.draw(highlight);
 
-        // Дополнительно подсвечиваем принудительную фигуру для взятия
         if (!captureForcedFrom_.empty()) {
             sf::RectangleShape forceHighlight(sf::Vector2f(CELL_SIZE, CELL_SIZE));
             forceHighlight.setFillColor(sf::Color(255, 0, 0, 80));
@@ -430,6 +495,38 @@ void GameRenderer::drawGame() {
             window_.draw(forceHighlight);
         }
     }
+}
+
+void GameRenderer::drawStatusTexts() {
+    window_.draw(gameStatusText_);
+    window_.draw(turnText_);
+}
+
+void GameRenderer::drawDisconnectButton() {
+    window_.draw(disconnectButton_);
+    window_.draw(disconnectButtonText_);
+}
+
+void GameRenderer::drawBackToMenuButton() {
+    window_.draw(backToMenuButton_);
+    window_.draw(backToMenuButtonText_);
+}
+
+void GameRenderer::drawGameOver() {
+    sf::RectangleShape overlay(sf::Vector2f(window_.getSize().x, window_.getSize().y));
+    overlay.setFillColor(sf::Color(0, 0, 0, 180));
+    window_.draw(overlay);
+
+    sf::Text winText;
+    winText.setFont(font_);
+    winText.setString("Game Over!\nWinner: " + winner_);
+    winText.setCharacterSize(40);
+    winText.setFillColor(sf::Color::White);
+    winText.setStyle(sf::Text::Bold);
+    sf::FloatRect bounds = winText.getLocalBounds();
+    winText.setPosition((window_.getSize().x - bounds.width) / 2.f,
+        (window_.getSize().y - bounds.height) / 2.f - 100);
+    window_.draw(winText);
 }
 
 void GameRenderer::drawBoard() {
@@ -469,28 +566,6 @@ void GameRenderer::drawPieces() {
     }
 }
 
-void GameRenderer::drawStatus(const std::string& text) {
-    gameStatusText_.setString(text);
-    window_.draw(gameStatusText_);
-}
-
-void GameRenderer::drawGameOver() {
-    sf::RectangleShape overlay(sf::Vector2f(window_.getSize().x, window_.getSize().y));
-    overlay.setFillColor(sf::Color(0, 0, 0, 180));
-    window_.draw(overlay);
-
-    sf::Text winText;
-    winText.setFont(font_);
-    winText.setString("Game Over!\nWinner: " + winner_);
-    winText.setCharacterSize(40);
-    winText.setFillColor(sf::Color::White);
-    winText.setStyle(sf::Text::Bold);
-    sf::FloatRect bounds = winText.getLocalBounds();
-    winText.setPosition((window_.getSize().x - bounds.width) / 2.f,
-        (window_.getSize().y - bounds.height) / 2.f);
-    window_.draw(winText);
-}
-
 // Helper functions
 sf::Vector2f GameRenderer::boardToPixel(int row, int col) const {
     return sf::Vector2f(BOARD_X + col * CELL_SIZE, BOARD_Y + row * CELL_SIZE);
@@ -514,4 +589,23 @@ bool GameRenderer::isMyPiece(int piece) const {
 void GameRenderer::clearSelection() {
     selRow_ = selCol_ = -1;
     hasSelection_ = false;
+}
+
+void GameRenderer::resetToMenu() {
+    client_.disconnect();
+    state_ = State::MENU;
+    board_.clear();
+    myColor_.clear();
+    currentTurn_.clear();
+    gameOver_ = false;
+    winner_.clear();
+    possibleMoves_.clear();
+    captureForcedFrom_.clear();
+    hasSelection_ = false;
+    ipFocused_ = false;
+    portFocused_ = false;
+    statusText_.setString("");
+    gameStatusText_.setString("");
+    turnText_.setString("");
+    // Не сбрасываем ipInput_ и portInput_, чтобы можно было переподключиться к тому же адресу
 }

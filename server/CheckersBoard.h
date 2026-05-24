@@ -56,8 +56,15 @@ public:
     // ѕровер€ет, может ли фигура на 'from' совершить вз€тие (дл€ определени€ серии)
     bool canCaptureFrom(const std::string& from, Cell playerColor) const;
 
+    bool isCaptureMove(const std::string& from, const std::string& to, Cell playerColor) const;
+
+    static void setSimpleCanCaptureBackward(bool enable) { s_simpleCanCaptureBackward = enable; }
+    static bool getSimpleCanCaptureBackward() { return s_simpleCanCaptureBackward; }
+
 private:
     Cell board[SIZE][SIZE];
+
+    static bool s_simpleCanCaptureBackward;
 
     // ѕреобразование шахматной нотации в координаты
     static int rowFromChar(char digit);  // '1'..'8' -> 7..0
