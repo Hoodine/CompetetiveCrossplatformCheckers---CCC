@@ -307,6 +307,8 @@ void GameRoom::run() {
                     ? CheckersBoard::WHITE_MAN
                     : CheckersBoard::BLACK_MAN;
 
+                bool wasCapture = board_.isCaptureMove(from, to, playerColor);
+
                 if (board_.makeMove(from, to, playerColor)) {
                     std::cout << "[Room " << roomId_ << "] "
                         << (currentPlayer == 0 ? "White" : "Black")
@@ -329,15 +331,15 @@ void GameRoom::run() {
                     }
 
                     // Проверяем серию взятий
-                    if (board_.canCaptureFrom(to, playerColor)) {
+                    if (wasCapture && board_.canCaptureFrom(to, playerColor)) {
+                        // Начинаем/продолжаем серию взятий
                         mustCaptureAgain_ = true;
                         capturePiecePos_ = to;
                         std::cout << "[Room " << roomId_ << "] Capture series continues from " << to << "\n";
-                        // НЕ переключаем игрока, отправляем обновлённую доску
+                        // Не переключаем игрока
                         broadcastBoardState(currentPlayer);
                         continue;
-                    }
-                    else {
+                    } else {
                         mustCaptureAgain_ = false;
                         // ПЕРЕКЛЮЧАЕМ игрока
                         currentPlayer = 1 - currentPlayer;

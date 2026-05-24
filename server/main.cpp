@@ -1,5 +1,6 @@
-#include "Server.h"
+#include "server.h"
 #include <iostream>
+#include "CheckersBoard.h"
 
 
 int main(int argc, char* argv[]) {
@@ -13,8 +14,10 @@ int main(int argc, char* argv[]) {
             port = 5555;
         }
     }
-
+    CheckersBoard::setSimpleCanCaptureBackward(true);
+    
     Server server(port);
+    
     server.run();
 
     return 0;
