@@ -1,0 +1,131 @@
+#:kivy 2.0
+
+<MenuScreen>:
+    canvas.before:
+        Color:
+            rgba: 0.12, 0.12, 0.12, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(20)
+        spacing: dp(15)
+        pos_hint: {'center_y': 0.5}
+        size_hint_y: 0.6
+
+        Label:
+            text: 'Checkers Online'
+            font_size: sp(28)
+            color: 1, 1, 1, 1
+            bold: True
+            size_hint_y: None
+            height: dp(50)
+
+        Label:
+            text: 'Server IP:'
+            font_size: sp(18)
+            color: 0.8, 0.8, 0.8, 1
+            size_hint_y: None
+            height: dp(30)
+            halign: 'left'
+            text_size: self.width, None
+
+        TextInput:
+            id: ip_input
+            text: '186.246.29.191'
+            font_size: sp(20)
+            multiline: False
+            size_hint_y: None
+            height: dp(50)
+            background_color: 0.2, 0.2, 0.2, 1
+            foreground_color: 1, 1, 1, 1
+            cursor_color: 1, 1, 1, 1
+            hint_text: 'Enter server IP'
+            hint_text_color: 0.5, 0.5, 0.5, 1
+            input_type: 'text'
+
+        Label:
+            text: 'Port:'
+            font_size: sp(18)
+            color: 0.8, 0.8, 0.8, 1
+            size_hint_y: None
+            height: dp(30)
+            halign: 'left'
+            text_size: self.width, None
+
+        TextInput:
+            id: port_input
+            text: '5555'
+            font_size: sp(20)
+            multiline: False
+            size_hint_y: None
+            height: dp(50)
+            background_color: 0.2, 0.2, 0.2, 1
+            foreground_color: 1, 1, 1, 1
+            cursor_color: 1, 1, 1, 1
+            hint_text: 'Enter port'
+            hint_text_color: 0.5, 0.5, 0.5, 1
+            input_type: 'number'
+
+        Button:
+            text: 'Connect'
+            font_size: sp(22)
+            size_hint_y: None
+            height: dp(55)
+            background_color: 0.2, 0.7, 0.3, 1
+            on_press: root.connect_to_server()
+
+        Label:
+            id: status_label
+            text: ''
+            font_size: sp(14)
+            color: 1, 0.8, 0, 1
+            size_hint_y: None
+            height: dp(40)
+
+
+<GameScreen>:
+    canvas.before:
+        Color:
+            rgba: 0.15, 0.15, 0.15, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    BoxLayout:
+        orientation: 'vertical'
+        padding: dp(5)
+
+        Label:
+            id: game_status
+            text: 'Waiting...'
+            font_size: sp(18)
+            color: 1, 1, 1, 1
+            size_hint_y: None
+            height: dp(50)
+            bold: True
+
+        Widget:
+            id: board_area
+            size_hint_y: 0.8
+
+        Label:
+            id: message_label
+            text: ''
+            font_size: sp(12)
+            color: 1, 0.8, 0, 1
+            size_hint_y: None
+            height: dp(40)
+            text_size: self.width, None
+            halign: 'center'
+
+        Button:
+            id: disconnect_button
+            text: 'Disconnect'
+            font_size: sp(14)
+            size_hint_y: None
+            height: dp(45)
+            background_color: 0.7, 0.2, 0.2, 1
+            on_press: root.disconnect()
